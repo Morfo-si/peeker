@@ -89,7 +89,6 @@ func GetCPUPercentage() ([]float64, error) {
 // DisplayCPUStat displays the CPU information.
 func DisplayCPUStat(cpuStat []cpu.InfoStat) {
 	if len(cpuStat) != 0 {
-		fmt.Println(cpuStat)
 		fmt.Printf("Model Name: %v ", cpuStat[0].ModelName)
 		fmt.Printf("Family: %v ", cpuStat[0].Family)
 		fmt.Printf("Speed: %v MHz\n", strconv.FormatFloat(cpuStat[0].Mhz, 'f', 2, 64))
