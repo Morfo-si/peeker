@@ -189,11 +189,17 @@ func GetCPUPercentage() ([]float64, error) {
 // DisplayCPUInformation displays the CPU information.
 func DisplayCPUInformation(sb StatusBar) string {
 	// CPU information
-	var cpuInformation string
+	var (
+		cpuModelName, hostArch string
+		cpuSpeed               float64
+	)
 
 	if len(sb.cpu) != 0 {
-		cpuInformation = fmt.Sprintf("%s %s MHz", sb.cpu[0].ModelName, strconv.FormatFloat(sb.cpu[0].Mhz, 'f', 2, 64))
+		hostArch = sb.host.KernelArch
+		cpuSpeed = sb.cpu[0].Mhz
+		cpuModelName = sb.cpu[0].ModelName
 	}
+	cpuInformation := fmt.Sprintf("%s (%s) %2.f MHz", cpuModelName, hostArch, cpuSpeed)
 	return highlightRightStyle.Render(cpuInformation)
 }
 
