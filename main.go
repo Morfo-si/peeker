@@ -2,22 +2,87 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
+
+	"golang.org/x/term"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
+// Constants used to convert units to MB and GB
 const megabyteDiv uint64 = 1024 * 1024
 const gigabyteDiv uint64 = megabyteDiv * 1024
 
+var (
+	// The width of the visible terminal.
+	terminalWidth, _, _ = term.GetSize(int(os.Stdout.Fd()))
+
+	// Style used for the disk information.
+	diskStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Align(lipgloss.Right).
+			Padding(0, 1)
+
+	// Style used for the memory information.
+	memoryStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Align(lipgloss.Left).
+			Padding(0, 1)
+
+	// Base style used for the status bar.
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#8CABFF"}).
+			Background(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#512B81"})
+
+	// Style used for the upper left corner of the status bar.
+	highlightLeftStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+				Background(lipgloss.Color("#35155D")).
+				Bold(true).
+				Padding(0, 1).
+				MarginRight(1)
+
+	// Style used for the upper right corner of the status bar.
+	highlightRightStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+				Background(lipgloss.Color("#35155D")).
+				Bold(true).
+				Padding(0, 1).
+				MarginLeft(1)
+
+	// Style used for generic text.
+	generalTextStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true)
+)
+
 // DisplayHostMemory displays information about the host's memory.
-func DisplayHostMemory(vmStat *mem.VirtualMemoryStat) {
-	fmt.Println("Total memory:", strconv.FormatUint(vmStat.Total/megabyteDiv, 10), "MB")
-	fmt.Println("Free memory:", strconv.FormatUint(vmStat.Available/megabyteDiv, 10), "MB")
-	fmt.Println("Percentage used memory:", strconv.FormatFloat(vmStat.UsedPercent, 'f', 2, 64), "%")
+func DisplayHostMemory(sb StatusBar, width int) string {
+	// Memory information
+	var (
+		memoryTotal, memoryAvailable, memoryInUse uint64
+		memoryUsedPercentenge                     float64
+	)
+
+	if sb.mem != nil {
+		memoryTotal = sb.mem.Total / megabyteDiv
+		memoryAvailable = sb.mem.Available / megabyteDiv
+		memoryInUse = memoryTotal - memoryAvailable
+		memoryUsedPercentenge = sb.mem.UsedPercent
+	}
+	memoryInformation := fmt.Sprintf("Memory: %d of %d MB used (%2.f%%)", memoryInUse, memoryTotal, memoryUsedPercentenge)
+
+	return memoryStyle.
+		Width(width).
+		Render(memoryInformation)
 }
 
 // GetHostMemory fetches information about the host's memory.
@@ -30,9 +95,35 @@ func GetHostMemory() (*mem.VirtualMemoryStat, error) {
 }
 
 // DisplayHostInformation displays information about a host.
-func DisplayHostInformation(hostStat *host.InfoStat) {
-	fmt.Printf("Hostname: %v\n", hostStat.Hostname)
-	fmt.Printf("Operating System: %v %v (%v)\n", hostStat.Platform, hostStat.PlatformVersion, hostStat.KernelArch)
+func DisplayHostInformation(sb StatusBar, width int) string {
+	// Host information
+	var hostName, hostArch string
+
+	if sb.host != nil {
+		hostName = sb.host.Hostname
+		hostArch = sb.host.KernelArch
+	}
+	// e.g., localhost.local arm64
+	hostInformation := fmt.Sprintf("%s %s", hostName, hostArch)
+	return generalTextStyle.
+		Width(width).
+		Align(lipgloss.Center).
+		Render(hostInformation)
+}
+
+// DisplayPlatformInformation displays information about a host.
+func DisplayPlatformInformation(sb StatusBar) string {
+	// Platform information
+	var platformName, platformVersion string
+
+	if sb.host != nil {
+		platformName = cases.Title(language.AmericanEnglish).String(sb.host.Platform)
+		platformVersion = sb.host.PlatformVersion
+	}
+	// e.g., Darwin 14.4.1
+	platformInformation := fmt.Sprintf("%s %s", platformName, platformVersion)
+
+	return highlightLeftStyle.Render(platformInformation)
 }
 
 // GetHostInformation fetches information for the host.
@@ -45,11 +136,20 @@ func GetHostInformation() (*host.InfoStat, error) {
 }
 
 // DisplayDiskInformation displays disk information on the console
-func DisplayDiskInformation(diskStat *disk.UsageStat) {
-	fmt.Printf("Total disk space: %v GB\n", strconv.FormatUint(diskStat.Total/gigabyteDiv, 10))
-	fmt.Printf("Used disk space: %v GB\n", strconv.FormatUint(diskStat.Used/gigabyteDiv, 10))
-	fmt.Printf("Free disk space: %v GB\n", strconv.FormatUint(diskStat.Free/gigabyteDiv, 10))
-	fmt.Printf("Percentage disk space usage: %v %%\n", strconv.FormatFloat(diskStat.UsedPercent, 'f', 2, 64))
+func DisplayDiskInformation(sb StatusBar) string {
+	// Disk information
+	var (
+		diskTotal, diskUsed uint64
+		diskUsedPercent     float64
+	)
+
+	if sb.disk != nil {
+		diskTotal = sb.disk.Total / gigabyteDiv
+		diskUsed = sb.disk.Used / gigabyteDiv
+		diskUsedPercent = sb.disk.UsedPercent
+	}
+	diskInformation := fmt.Sprintf("Disk: %d of %d GB used (%2.f%%)", diskUsed, diskTotal, diskUsedPercent)
+	return diskStyle.Align(lipgloss.Right).Render(diskInformation)
 }
 
 // GetDiskInformation returns the file system usage.
@@ -86,13 +186,21 @@ func GetCPUPercentage() ([]float64, error) {
 	return percentage, nil
 }
 
-// DisplayCPUStat displays the CPU information.
-func DisplayCPUStat(cpuStat []cpu.InfoStat) {
-	if len(cpuStat) != 0 {
-		fmt.Printf("Model Name: %v ", cpuStat[0].ModelName)
-		fmt.Printf("Family: %v ", cpuStat[0].Family)
-		fmt.Printf("Speed: %v MHz\n", strconv.FormatFloat(cpuStat[0].Mhz, 'f', 2, 64))
+// DisplayCPUInformation displays the CPU information.
+func DisplayCPUInformation(sb StatusBar) string {
+	// CPU information
+	var (
+		cpuModelName, hostArch string
+		cpuSpeed               float64
+	)
+
+	if len(sb.cpu) != 0 {
+		hostArch = sb.host.KernelArch
+		cpuSpeed = sb.cpu[0].Mhz
+		cpuModelName = sb.cpu[0].ModelName
 	}
+	cpuInformation := fmt.Sprintf("%s (%s) %2.f MHz", cpuModelName, hostArch, cpuSpeed)
+	return highlightRightStyle.Render(cpuInformation)
 }
 
 // GetCPUStat returns only one CPUInfoStat on FreeBSD
@@ -105,23 +213,92 @@ func GetCPUStat() ([]cpu.InfoStat, error) {
 	return cpuStat, nil
 }
 
-func main() {
+// Struct used to represent a StatusBar
+type StatusBar struct {
+	cpu  []cpu.InfoStat
+	disk *disk.UsageStat
+	host *host.InfoStat
+	mem  *mem.VirtualMemoryStat
+}
+
+// New StatusBar with no features.
+func NewStatusBar() *StatusBar {
+	return &StatusBar{}
+}
+
+// New StatusBar with feature.
+func (sb *StatusBar) WithHostInformation() *StatusBar {
 	if host, err := GetHostInformation(); err == nil {
-		DisplayHostInformation(host)
+		sb.host = host
 	}
+	return sb
+}
 
-	if stat, err := GetCPUStat(); err == nil {
-		DisplayCPUStat(stat)
+// New StatusBar with CPU feature.
+func (sb *StatusBar) WithCPUInformation() *StatusBar {
+	if cpu, err := GetCPUStat(); err == nil {
+		sb.cpu = cpu
 	}
+	return sb
+}
 
+// New StatusBar with Memory feature.
+func (sb *StatusBar) WithMemoryInformation() *StatusBar {
 	if mem, err := GetHostMemory(); err == nil {
-		DisplayHostMemory(mem)
+		sb.mem = mem
 	}
+	return sb
+}
 
+// New StatusBar with Disk feature.
+func (sb *StatusBar) WithDiskInformation() *StatusBar {
 	if disk, err := GetDiskInformation(); err == nil {
-		DisplayDiskInformation(disk)
+		sb.disk = disk
 	}
-	if percentage, err := GetCPUPercentage(); err == nil {
-		DisplayCPUPercentage(percentage)
-	}
+	return sb
+}
+
+// Renders the StatusBar with all features.
+func (sb StatusBar) Render() {
+	// Shortcut to get accurate width from a given string.
+	w := lipgloss.Width
+
+	// Platform information
+	platformCell := DisplayPlatformInformation(sb)
+	// CPU information
+	cpuCell := DisplayCPUInformation(sb)
+	// Host information
+	hostCell := DisplayHostInformation(sb, terminalWidth-w(platformCell)-w(cpuCell))
+	// Disk information
+	diskCell := DisplayDiskInformation(sb)
+	// Memory information
+	memoryCell := DisplayHostMemory(sb, terminalWidth-w(diskCell))
+
+	// Top line for status bar.
+	firstLine := lipgloss.JoinHorizontal(lipgloss.Top,
+		platformCell,
+		hostCell,
+		cpuCell,
+	)
+	// Bottom line for status bar.
+	secondLine := lipgloss.JoinHorizontal(lipgloss.Top,
+		memoryCell,
+		diskCell,
+	)
+
+	bar := lipgloss.JoinVertical(lipgloss.Top,
+		firstLine, secondLine,
+	)
+	fmt.Println(bar)
+
+}
+
+func main() {
+	// Display status bar with system information.
+	bar := NewStatusBar().
+		WithHostInformation().
+		WithCPUInformation().
+		WithMemoryInformation().
+		WithDiskInformation()
+	bar.Render()
 }
