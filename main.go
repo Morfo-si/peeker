@@ -2,16 +2,67 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
+
+	"golang.org/x/term"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 const megabyteDiv uint64 = 1024 * 1024
 const gigabyteDiv uint64 = megabyteDiv * 1024
+
+var (
+	diskStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Align(lipgloss.Right).
+			Padding(0, 1)
+
+	memoryStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Align(lipgloss.Left).
+			Padding(0, 1)
+
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#8CABFF"}).
+			Background(lipgloss.AdaptiveColor{Light: "#000000", Dark: "#512B81"})
+
+	cpuStyle = lipgloss.NewStyle().
+			Inherit(statusBarStyle).
+			Foreground(lipgloss.Color("8CABFF")).
+			Background(lipgloss.Color("#35155D")).
+			Bold(true).
+			Padding(0).
+			MarginRight(1)
+
+	highlightLeftStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+		// Foreground(lipgloss.Color("#5AB2FF")).
+		Background(lipgloss.Color("#35155D")).
+		Bold(true).
+		Padding(0, 1).
+		MarginRight(1)
+
+	highlightRightStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+		// Foreground(lipgloss.Color("#5AB2FF")).
+		Background(lipgloss.Color("#35155D")).
+		Bold(true).
+		Padding(0, 1).
+		MarginLeft(1)
+
+	generalTextStyle = lipgloss.NewStyle().
+				Inherit(statusBarStyle).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true)
+)
 
 // DisplayHostMemory displays information about the host's memory.
 func DisplayHostMemory(vmStat *mem.VirtualMemoryStat) {
@@ -105,23 +156,115 @@ func GetCPUStat() ([]cpu.InfoStat, error) {
 	return cpuStat, nil
 }
 
-func main() {
+type StatusBar struct {
+	cpu  []cpu.InfoStat
+	disk *disk.UsageStat
+	host *host.InfoStat
+	mem  *mem.VirtualMemoryStat
+}
+
+func NewStatusBar() *StatusBar {
+	return &StatusBar{}
+}
+
+func (sb *StatusBar) WithHostInformation() *StatusBar {
 	if host, err := GetHostInformation(); err == nil {
-		DisplayHostInformation(host)
+		sb.host = host
 	}
+	return sb
+}
 
-	if stat, err := GetCPUStat(); err == nil {
-		DisplayCPUStat(stat)
+func (sb *StatusBar) WithCPUInformation() *StatusBar {
+	if cpu, err := GetCPUStat(); err == nil {
+		sb.cpu = cpu
 	}
+	return sb
+}
 
+func (sb *StatusBar) WithMemoryInformation() *StatusBar {
 	if mem, err := GetHostMemory(); err == nil {
-		DisplayHostMemory(mem)
+		sb.mem = mem
+	}
+	return sb
+}
+
+func (sb *StatusBar) WithDiskInformation() *StatusBar {
+	if disk, err := GetDiskInformation(); err == nil {
+		sb.disk = disk
+	}
+	return sb
+}
+
+func (sb StatusBar) Render() {
+	terminalWidth, _, _ := term.GetSize(int(os.Stdout.Fd()))
+	w := lipgloss.Width
+
+	// Platform information
+	platformName := cases.Title(language.AmericanEnglish).String(sb.host.Platform)
+	platformVersion := sb.host.PlatformVersion
+	// e.g., Darwin 14.4.1
+	platformInformation := fmt.Sprintf("%s %s", platformName, platformVersion)
+
+	// Host information
+	hostName := sb.host.Hostname
+	hostArch := sb.host.KernelArch
+	// e.g., localhost.local arm64
+	hostInformation := fmt.Sprintf("%s %s", hostName, hostArch)
+
+	// CPU information
+	var cpuInformation string
+	if len(sb.cpu) != 0 {
+		cpuInformation = fmt.Sprintf("%s %s MHz", sb.cpu[0].ModelName, strconv.FormatFloat(sb.cpu[0].Mhz, 'f', 2, 64))
 	}
 
-	if disk, err := GetDiskInformation(); err == nil {
-		DisplayDiskInformation(disk)
-	}
-	if percentage, err := GetCPUPercentage(); err == nil {
-		DisplayCPUPercentage(percentage)
-	}
+	platformCell := highlightLeftStyle.Render(platformInformation)
+	cpuCell := highlightRightStyle.Render(cpuInformation)
+	hostVal := generalTextStyle.
+		Width(terminalWidth - w(platformCell) - w(cpuCell)).
+		Align(lipgloss.Center).
+		Render(hostInformation)
+
+	barLine1 := lipgloss.JoinHorizontal(lipgloss.Top,
+		platformCell,
+		hostVal,
+		cpuCell,
+	)
+
+	// Disk information
+	diskTotal := sb.disk.Total / gigabyteDiv
+	diskUsed := sb.disk.Used / gigabyteDiv
+	diskUsedPercent := sb.disk.UsedPercent
+	diskInformation := fmt.Sprintf("Disk: %d of %d used (%2.f %%)", diskUsed, diskTotal, diskUsedPercent)
+	diskCell := diskStyle.Align(lipgloss.Right).Render(diskInformation)
+
+	// Memory information
+	memoryTotal := sb.mem.Total / megabyteDiv
+	memoryAvailable := sb.mem.Available / megabyteDiv
+	memoryInUse := memoryTotal - memoryAvailable
+	memoryUsedPercentenge := sb.mem.UsedPercent
+	memoryInformation := fmt.Sprintf("Memory used: %d of %d MB (%2.f%% used)", memoryInUse, memoryTotal, memoryUsedPercentenge)
+
+	memoryCell := memoryStyle.
+		Width(terminalWidth - w(diskCell)).
+		Render(memoryInformation)
+
+	barLine2 := lipgloss.JoinHorizontal(lipgloss.Top,
+		memoryCell,
+		diskCell,
+	)
+
+	bar := lipgloss.JoinVertical(lipgloss.Top,
+		barLine1, barLine2,
+	)
+	fmt.Println(bar)
+
+}
+
+func main() {
+	bar := NewStatusBar().
+		WithHostInformation().
+		WithCPUInformation().
+		WithMemoryInformation().
+		WithDiskInformation()
+	bar.Render()
 }
