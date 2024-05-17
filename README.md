@@ -7,8 +7,7 @@ Display information about your system.
     % peeker
 
 ### Dark background
-![Dark background]("https://github.com/Morfo-si/peeker/assets/53362/d73b6152-eccc-4460-9699-fa6275ae113f" "peeker")
+<img width="808" alt="image" src="https://github.com/Morfo-si/peeker/assets/53362/95e3c2f9-fea9-4f91-a062-f88c3a16aba3">
 
 ### Light background
-
-![Light background]("https://github.com/Morfo-si/peeker/assets/53362/d9d87777-0b01-43aa-ae48-ae53f62e4a60" "peeker")
+<img width="808" alt="image" src="https://github.com/Morfo-si/peeker/assets/53362/21e78e73-c0a2-4e13-9935-1957ef3f7a59">
